@@ -111,13 +111,13 @@ const unsigned long TIMEOUT_CAPTAR_MS = 120000UL;
 // CONFIGURACION WIFI Y THINGSPEAK
 // ======================================================
 // Nombre y contraseña de red WiFi 
-const char* WIFI_SSID = "Dave";
-const char* WIFI_PASS = "ladelwifi";
+const char* WIFI_SSID = "Nombre";
+const char* WIFI_PASS = "Contraseña";
 
 // Channel ID y los API KEY de escritura y lectura de la plataforma ThingSpeak
-const char* TS_WRITE_API_KEY = "Q8MJFTI3GSVRTJL3";
-const char* TS_READ_API_KEY  = "PW3B3BRDEV0D8GEV";
-const char* TS_CHANNEL_ID    = "3374410";
+const char* TS_WRITE_API_KEY = "Write Api";
+const char* TS_READ_API_KEY  = "Read Api";
+const char* TS_CHANNEL_ID    = "Channel ID";
 
 
 // ======================================================
