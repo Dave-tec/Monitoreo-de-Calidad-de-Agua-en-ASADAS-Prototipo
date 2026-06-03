@@ -93,14 +93,14 @@ const unsigned long TIEMPO_DRENAJE_MS = 20000UL;
 // Tiempo para captar agua durante limpieza del tubo. (10 segundos)
 const unsigned long TIEMPO_LIMPIEZA_CAPTAR_MS = 10000UL;
 
-// Tiempo para drenar durante limpieza del tubo.(10 segundos)
+// Tiempo para drenar durante limpieza del tubo. (10 segundos)
 const unsigned long TIEMPO_LIMPIEZA_DRENAR_MS = 10000UL;
 
 // Tiempo de espera antes del segundo intento WiFi. (1 minuto)
 const unsigned long TIEMPO_REINTENTO_WIFI_MS = 60000UL;
 
 // Tiempo extra que la bomba de captación queda encendida
-// después de que el sensor de nivel detecta agua.(2 segundos)
+// después de que el sensor de nivel detecta agua. (2 segundos)
 const unsigned long TIEMPO_EXTRA_CAPTACION_MS = 2000UL;
 
 // Tiempo máximo de captación por seguridad.
@@ -110,14 +110,15 @@ const unsigned long TIMEOUT_CAPTAR_MS = 120000UL;
 // ======================================================
 // CONFIGURACION WIFI Y THINGSPEAK
 // ======================================================
-// Nombre y contraseña de red WiFi 
-const char* WIFI_SSID = "Nombre";
-const char* WIFI_PASS = "Contraseña";
 
-// Channel ID y los API KEY de escritura y lectura de la plataforma ThingSpeak
-const char* TS_WRITE_API_KEY = "Write Api";
-const char* TS_READ_API_KEY  = "Read Api";
-const char* TS_CHANNEL_ID    = "Channel ID";
+// Nombre y contraseña de red WiFi
+const char* WIFI_SSID = "Nombre de la Red";
+const char* WIFI_PASS = "Contraseña de la Red";
+
+// Channel ID y API KEY de escritura y lectura de ThingSpeak
+const char* TS_WRITE_API_KEY = "API KEY WRITE";
+const char* TS_READ_API_KEY  = "API KEY READ";
+const char* TS_CHANNEL_ID    = "CHANNEL ID";
 
 
 // ======================================================
@@ -210,22 +211,22 @@ const float PH_AJUSTE_B = -10.4384;
 // Ecuación:
 // Conductividad = -157.27 + 6.8272(Sensor)
 // Donde Sensor entra en uS/cm.
-// Se usa el mejor ajuste para valores bajos de conductividad
 // ------------------------------------------------------
 const float COND_AJUSTE_A = -157.27;
 const float COND_AJUSTE_B = 6.8272;
 
 // ------------------------------------------------------
-// Turbidez con ecuación DFRobot
+// Turbidez por regresión lineal
 // Ecuación:
-// NTU = -1120.4(V^2) + 5742.3(V) - 4352.9
+// NTU = 1000 - 354.48(V)
 //
-// Pero antes se adapta el voltaje leído por ESP32:
-// V_adaptado = 4.1 * (V_ESP32 / 2.35)
+// Donde V corresponde al voltaje leído directamente
+// desde el sensor de turbidez por el ADC del ESP32.
 // ------------------------------------------------------
-const float TURB_VOLT_MAX_ESP32 = 2.35;
-const float TURB_VOLT_AGUA_CLARA_DFROBOT = 4.1;
-const float TURB_NTU_MAX = 3000.0;
+const float TURB_AJUSTE_A = 1000.0;
+const float TURB_AJUSTE_B = -354.48;
+const float TURB_NTU_MIN = 0.0;
+const float TURB_NTU_MAX = 1000.0;
 
 
 // ======================================================
@@ -405,8 +406,7 @@ bool etapaCaptacionInicial() {
 
     Serial.println("[ETAPA 1] Captacion y limpieza completadas.");
     return true;
-  } 
-  else {
+  } else {
     Serial.println("[ETAPA 1] No hay agua. Se activa bomba B.");
 
     unsigned long t0 = millis();
@@ -753,42 +753,28 @@ float medirConductividad() {
 
 
 // ======================================================
-// FUNCION: adaptar voltaje de turbidez al rango DFRobot
+// FUNCION: calcular turbidez por regresion lineal
 // ======================================================
 //
-// Se limita el voltaje leído para evitar extrapolaciones.
-// Luego se aplica:
-// V_adaptado = 4.1 * (V_ESP32 / 2.35)
-float adaptarVoltajeTurbidezDFRobot(float voltajeESP32) {
-  if (voltajeESP32 < 0.0) {
-    voltajeESP32 = 0.0;
-  }
-
-  if (voltajeESP32 > TURB_VOLT_MAX_ESP32) {
-    voltajeESP32 = TURB_VOLT_MAX_ESP32;
-  }
-
-  float voltajeAdaptado = TURB_VOLT_AGUA_CLARA_DFROBOT * (voltajeESP32 / TURB_VOLT_MAX_ESP32);
-
-  return voltajeAdaptado;
-}
-
-
-// ======================================================
-// FUNCION: calcular NTU con ecuacion DFRobot
-// ======================================================
+// Ecuación utilizada:
+// NTU = 1000 - 354.48(V)
 //
-// NTU = -1120.4(V^2) + 5742.3(V) - 4352.9
-// V debe ser el voltaje adaptado.
-float calcularNTU_DFRobot(float voltajeAdaptado) {
-  float ntu = (-1120.4 * voltajeAdaptado * voltajeAdaptado) +
-              (5742.3 * voltajeAdaptado) -
-              4352.9;
+// Donde:
+// V = voltaje leído directamente desde el sensor de turbidez.
+//
+// Esta ecuación se obtuvo a partir de una aproximación lineal,
+// considerando que:
+// V = 2.821 V corresponde aproximadamente a 0 NTU.
+// V = 0 V corresponde aproximadamente a 1000 NTU.
+float calcularTurbidezLineal(float voltajeSensor) {
+  float ntu = TURB_AJUSTE_A + (TURB_AJUSTE_B * voltajeSensor);
 
-  if (ntu < 0.0) {
-    ntu = 0.0;
+  // La turbidez no puede ser negativa.
+  if (ntu < TURB_NTU_MIN) {
+    ntu = TURB_NTU_MIN;
   }
 
+  // Se limita el valor máximo al rango definido para esta aproximación.
   if (ntu > TURB_NTU_MAX) {
     ntu = TURB_NTU_MAX;
   }
@@ -801,13 +787,14 @@ float calcularNTU_DFRobot(float voltajeAdaptado) {
 // FUNCION: medir turbidez
 // ======================================================
 //
-// Se toman 30 muestras.
+// Se toman 30 muestras del sensor de turbidez.
 // En cada muestra:
-// 1. Se lee ADC.
-// 2. Se convierte a voltaje ESP32.
-// 3. Se adapta a rango DFRobot.
-// 4. Se calcula NTU.
-// Al final se promedian los valores.
+// 1. Se lee el valor ADC.
+// 2. Se convierte el ADC a voltaje.
+// 3. Se aplica la ecuación lineal:
+//    NTU = 1000 - 354.48(V)
+//
+// Al final se promedian el voltaje y la turbidez calculada.
 float medirTurbidez() {
   Serial.println("======================================");
   Serial.println("[TURBIDEZ] Inicio de medicion con 30 muestras");
@@ -815,17 +802,18 @@ float medirTurbidez() {
 
   const int muestras = 30;
 
-  float sumaVoltajeESP32 = 0.0;
-  float sumaVoltajeAdaptado = 0.0;
+  float sumaVoltaje = 0.0;
   float sumaNTU = 0.0;
   int validas = 0;
 
   for (int i = 0; i < muestras; i++) {
     int rawADC = analogRead(PIN_TURBIDEZ);
 
-    float voltajeESP32 = adcToVoltage(rawADC);
-    float voltajeAdaptado = adaptarVoltajeTurbidezDFRobot(voltajeESP32);
-    float ntu = calcularNTU_DFRobot(voltajeAdaptado);
+    // Conversión del ADC del ESP32 a voltaje.
+    float voltajeSensor = adcToVoltage(rawADC);
+
+    // Cálculo de turbidez mediante regresión lineal.
+    float ntu = calcularTurbidezLineal(voltajeSensor);
 
     Serial.print("[TURBIDEZ] Muestra ");
     Serial.print(i + 1);
@@ -833,21 +821,16 @@ float medirTurbidez() {
     Serial.print(" | ADC: ");
     Serial.print(rawADC);
 
-    Serial.print(" | Voltaje ESP32: ");
-    Serial.print(voltajeESP32, 3);
+    Serial.print(" | Voltaje sensor: ");
+    Serial.print(voltajeSensor, 3);
     Serial.print(" V");
 
-    Serial.print(" | Voltaje adaptado: ");
-    Serial.print(voltajeAdaptado, 3);
-    Serial.print(" V");
-
-    Serial.print(" | Turbidez: ");
+    Serial.print(" | Turbidez lineal: ");
     Serial.print(ntu, 2);
     Serial.println(" NTU");
 
-    if (!isnan(voltajeESP32) && !isnan(ntu)) {
-      sumaVoltajeESP32 += voltajeESP32;
-      sumaVoltajeAdaptado += voltajeAdaptado;
+    if (!isnan(voltajeSensor) && !isnan(ntu)) {
+      sumaVoltaje += voltajeSensor;
       sumaNTU += ntu;
       validas++;
     }
@@ -861,28 +844,23 @@ float medirTurbidez() {
     return NAN;
   }
 
-  float promedioVoltajeESP32 = sumaVoltajeESP32 / validas;
-  float promedioVoltajeAdaptado = sumaVoltajeAdaptado / validas;
+  float promedioVoltaje = sumaVoltaje / validas;
   float promedioNTU = sumaNTU / validas;
 
-  parametroVoltajeTurbidez = promedioVoltajeESP32;
+  parametroVoltajeTurbidez = promedioVoltaje;
 
   Serial.println("======================================");
   Serial.println("[TURBIDEZ] Resultado promedio");
 
-  Serial.print("[TURBIDEZ] Voltaje promedio ESP32: ");
-  Serial.print(promedioVoltajeESP32, 3);
-  Serial.println(" V");
-
-  Serial.print("[TURBIDEZ] Voltaje promedio adaptado DFRobot: ");
-  Serial.print(promedioVoltajeAdaptado, 3);
+  Serial.print("[TURBIDEZ] Voltaje promedio sensor: ");
+  Serial.print(promedioVoltaje, 3);
   Serial.println(" V");
 
   Serial.print("[TURBIDEZ] Turbidez promedio estimada: ");
   Serial.print(promedioNTU, 2);
   Serial.println(" NTU");
 
-  Serial.println("[TURBIDEZ] Nota: valor estimado mediante ecuacion DFRobot adaptada al ESP32.");
+  Serial.println("[TURBIDEZ] Nota: valor estimado mediante regresion lineal.");
   Serial.println("======================================");
 
   return promedioNTU;
@@ -1151,9 +1129,8 @@ bool iniciarSD() {
 // ======================================================
 //
 // Guarda los valores finales:
-// temperatura, voltaje pH, pH ajustado,
-// conductividad ajustada, voltaje turbidez,
-// turbidez NTU y nitratos estimados.
+// fecha, temperatura, pH, conductividad,
+// turbidez y nitratos estimados.
 void guardarCSVEnSD() {
   Serial.println("======================================");
   Serial.println("[MICROSD] Guardando datos");
@@ -1174,7 +1151,7 @@ void guardarCSVEnSD() {
 
   if (!existe) {
     Serial.println("[MICROSD] Archivo no existia. Se escribira encabezado.");
-    archivo.println("fecha_hora,temperatura,voltaje_ph,ph,conductividad_uscm,voltaje_turbidez,turbidez_ntu,nitratos_mgl");
+    archivo.println("fecha_hora,temperatura,ph,conductividad_uscm,turbidez_ntu,nitratos_mgl");
   }
 
   String fechaHora = obtenerFechaHora();
@@ -1183,13 +1160,9 @@ void guardarCSVEnSD() {
   archivo.print(",");
   archivo.print(parametroTemperatura, 2);
   archivo.print(",");
-  archivo.print(parametroVoltajePH, 3);
-  archivo.print(",");
   archivo.print(parametroPH, 2);
   archivo.print(",");
   archivo.print(parametroConductividad, 2);
-  archivo.print(",");
-  archivo.print(parametroVoltajeTurbidez, 3);
   archivo.print(",");
   archivo.print(parametroTurbidez, 2);
   archivo.print(",");
@@ -1369,8 +1342,7 @@ void evaluarYEmitirAlertas() {
       Serial.print("[ALERTA VMA] Nitratos superan valor maximo admisible de 50 mg/L: ");
       Serial.print(parametroNitratos, 2);
       Serial.println(" mg/L");
-    } 
-    else if (parametroNitratos > NITR_ALERTA) {
+    } else if (parametroNitratos > NITR_ALERTA) {
       existeAlerta = true;
       Serial.print("[ALARMA VALOR ALERTA] Nitratos superan 25 mg/L: ");
       Serial.print(parametroNitratos, 2);
@@ -1452,7 +1424,7 @@ void setup() {
   Serial.println("[SETUP] Sensor de temperatura iniciado.");
   Serial.println("[SETUP] Medicion de pH configurada por voltaje.");
   Serial.println("[SETUP] Conductividad configurada con ajuste por regresion.");
-  Serial.println("[SETUP] Turbidez configurada con ecuacion DFRobot adaptada.");
+  Serial.println("[SETUP] Turbidez configurada con regresion lineal.");
   Serial.println("[SETUP] Sistema listo.");
 }
 
