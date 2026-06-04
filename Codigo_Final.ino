@@ -108,7 +108,7 @@ const unsigned long TIMEOUT_CAPTAR_MS = 120000UL;
 
 
 // ======================================================
-// CONFIGURACION WIFI Y THINGSPEAK
+// CONFIGURACION THINGSPEAK
 // ======================================================
 
 // Nombre y contraseña de red WiFi
